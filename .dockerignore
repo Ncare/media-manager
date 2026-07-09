@@ -1,0 +1,28 @@
+# Python venv / caches (built inside the image)
+backend/.venv
+backend/**/__pycache__
+backend/**/*.pyc
+backend/.pytest_cache
+backend/.mypy_cache
+backend/.ruff_cache
+
+# Node deps (installed inside the image)
+frontend/node_modules
+frontend/dist
+
+# Local media / test data (mount as a volume instead)
+media/
+*.db
+*.db-*
+__db__/
+
+# Local env / git / IDE
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+*.md
+.DS_Store
+.idea
+.vscode

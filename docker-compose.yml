@@ -1,0 +1,30 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - TMDB_LANGUAGE=${TMDB_LANGUAGE:-zh-CN}
+      - MEDIA_ROOT=/media
+      - DB_PATH=/data/media_manager.db
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    volumes:
+      - ${MEDIA_DIR:-./media}:/media      # NAS media dir (read-write for scrape/rename/nfo)
+      - mm_data:/data                     # SQLite + config persistence
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      target: ${BUILD_TARGET:-prod}
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mm_data:

@@ -1,0 +1,70 @@
+name: Build & Publish Docker Images
+
+# Builds the backend + frontend images and pushes them to GitHub Container
+# Registry (GHCR). Public repo → images are public, NAS can `docker pull`
+# without logging in. Triggered on push to main and via manual dispatch.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/docker-publish.yml'
+  workflow_dispatch:        # allow manual run from the Actions tab
+
+env:
+  REGISTRY: ghcr.io
+  # IMAGE_PREFIX = ghcr.io/<owner>/<repo>-  (owner lowercased below per step)
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}-
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      # build both services in parallel jobs
+      matrix:
+        include:
+          # backend Dockerfile has no build stage → no target
+          - target: backend
+            context: ./backend
+            stage: ''
+          # frontend uses a multi-stage build; we want the final `prod` (nginx) stage
+          - target: frontend
+            context: ./frontend
+            stage: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set lowercase image name
+        id: name
+        run: echo "image=$(echo '${{ env.IMAGE_PREFIX }}${{ matrix.target }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU (multi-arch emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # auto-provided, no secret to set
+
+      - name: Build & push ${{ matrix.target }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          target: ${{ matrix.stage }}
+          # multi-arch → runs on Intel NAS (amd64) and ARM NAS (arm64)
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.name.outputs.image }}:latest
+            ${{ steps.name.outputs.image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

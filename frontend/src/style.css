@@ -1,0 +1,62 @@
+:root {
+  --bg: #0f1115;
+  --panel: #1a1d24;
+  --panel-2: #22262f;
+  --text: #e6e8eb;
+  --muted: #8b929e;
+  --accent: #3e8ed0;
+  --accent-2: #48c78e;
+  --border: #2c313a;
+  --danger: #ef4444;
+}
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+.page { padding: 20px 24px; }
+.page h2 { margin: 0 0 16px; font-size: 20px; }
+.muted { color: var(--muted); }
+.center { text-align: center; }
+
+/* poster grid */
+.poster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+}
+.poster-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.poster-card:hover { transform: translateY(-3px); border-color: var(--accent); }
+.poster-card .poster {
+  aspect-ratio: 2/3;
+  background: var(--panel-2) center/cover no-repeat;
+}
+.poster-card .meta { padding: 8px 10px; }
+.poster-card .title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.poster-card .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* dark tweaks for Element Plus to match theme */
+.el-card, .el-dialog, .el-table, .el-input__wrapper, .el-select__wrapper, .el-textarea__inner {
+  background-color: var(--panel) !important;
+  color: var(--text) !important;
+}
+.el-table tr, .el-table td.el-table__cell, .el-table th.el-table__cell.is-leaf {
+  background-color: transparent !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+.el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell { background-color: var(--panel-2) !important; }
+.el-input__inner, .el-textarea__inner { color: var(--text) !important; }
+.el-form-item__label { color: var(--muted) !important; }
+.el-empty__description p { color: var(--muted) !important; }

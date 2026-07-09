@@ -1,0 +1,40 @@
+# =========================================================================
+#  NAS 一键部署版 —— 直接拉取 GHCR 预构建镜像,无需在 NAS 上编译。
+#
+#  使用前:把下面两行 image 里的 <your-username> 换成你的 GitHub 用户名
+#  (镜像名大小写敏感,GitHub 用户名需全部小写)
+#
+#  部署步骤:
+#    1. 把本文件和 .env.example 放到 NAS 上(同一个目录)
+#    2. cp .env.example .env && 编辑 .env(填 TMDB_API_KEY / MEDIA_DIR / PUID / PGID)
+#    3. docker compose -f docker-compose.nas.yml up -d
+#    4. 浏览器访问 http://NAS_IP:${FRONTEND_PORT}
+# =========================================================================
+services:
+  backend:
+    image: ghcr.io/<your-username>/media-manager-backend:latest
+    environment:
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - TMDB_LANGUAGE=${TMDB_LANGUAGE:-zh-CN}
+      - MEDIA_ROOT=/media
+      - DB_PATH=/data/media_manager.db
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    volumes:
+      - ${MEDIA_DIR:-./media}:/media      # NAS 媒体目录(读写)
+      - mm_data:/data                     # SQLite + 配置持久化
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/<your-username>/media-manager-frontend:latest
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mm_data:

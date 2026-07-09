@@ -1,0 +1,171 @@
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { librariesApi } from '@/api'
+import type { Library, LibraryType } from '@/types'
+import NamingTemplateEditor from '@/components/NamingTemplateEditor.vue'
+
+const libraries = ref<Library[]>([])
+const loading = ref(false)
+const dialogVisible = ref(false)
+const editing = ref<Library | null>(null)
+const form = ref({
+  name: '',
+  type: 'movie' as LibraryType,
+  root_path: '',
+  naming_template: '{title} ({year})/{titleSort;originalTitle;title} ({year}) [{resolution};{source}]{ext}',
+  tv_show_template: '{showTitle} ({year})',
+  auto_scrape: true,
+})
+
+async function load() {
+  loading.value = true
+  try {
+    libraries.value = await librariesApi.list()
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
+
+function openCreate() {
+  editing.value = null
+  form.value = {
+    name: '',
+    type: 'movie',
+    root_path: '',
+    naming_template: '{title} ({year})/{titleSort;originalTitle;title} ({year}) [{resolution};{source}]{ext}',
+    tv_show_template: '{showTitle} ({year})',
+    auto_scrape: true,
+  }
+  dialogVisible.value = true
+}
+
+function openEdit(lib: Library) {
+  editing.value = lib
+  form.value = {
+    name: lib.name,
+    type: lib.type,
+    root_path: lib.root_path,
+    naming_template: lib.naming_template,
+    tv_show_template: lib.tv_show_template,
+    auto_scrape: lib.auto_scrape,
+  }
+  dialogVisible.value = true
+}
+
+async function save() {
+  if (!form.value.name || !form.value.root_path) {
+    ElMessage.warning('请填写名称和路径')
+    return
+  }
+  try {
+    if (editing.value) {
+      await librariesApi.update(editing.value.id, form.value)
+      ElMessage.success('已更新')
+    } else {
+      await librariesApi.create(form.value)
+      ElMessage.success('已创建')
+    }
+    dialogVisible.value = false
+    load()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  }
+}
+
+async function scan(lib: Library) {
+  try {
+    const res = await librariesApi.scan(lib.id)
+    ElMessage.success(`扫描已启动 (任务 ${res.task_id})`)
+    setTimeout(load, 1500)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '扫描失败')
+  }
+}
+
+async function remove(lib: Library) {
+  await ElMessageBox.confirm(`确定删除媒体库「${lib.name}」?(不会删除媒体文件)`, '确认', {
+    type: 'warning',
+  })
+  await librariesApi.remove(lib.id)
+  ElMessage.success('已删除')
+  load()
+}
+</script>
+
+<template>
+  <div class="page">
+    <div class="header">
+      <h2>媒体库</h2>
+      <el-button type="primary" @click="openCreate">+ 新建媒体库</el-button>
+    </div>
+
+    <el-table v-loading="loading" :data="libraries" style="width:100%">
+      <el-table-column prop="name" label="名称" />
+      <el-table-column prop="type" label="类型" width="90">
+        <template #default="{ row }">{{ row.type === 'movie' ? '电影' : '电视剧' }}</template>
+      </el-table-column>
+      <el-table-column prop="root_path" label="路径" />
+      <el-table-column label="数量" width="100">
+        <template #default="{ row }">
+          {{ row.type === 'movie' ? row.movie_count : row.tv_count }}
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="240">
+        <template #default="{ row }">
+          <el-button size="small" type="primary" @click="scan(row)">扫描</el-button>
+          <el-button size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" type="danger" @click="remove(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <el-dialog v-model="dialogVisible" :title="editing ? '编辑媒体库' : '新建媒体库'" width="560px">
+      <el-form :model="form" label-width="110px">
+        <el-form-item label="名称">
+          <el-input v-model="form.name" placeholder="例如:电影" />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-radio-group v-model="form.type">
+            <el-radio value="movie">电影</el-radio>
+            <el-radio value="tv">电视剧</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="路径">
+          <el-input v-model="form.root_path" placeholder="相对于媒体根目录,例如:Movies" />
+          <div class="muted" style="font-size:12px;margin-top:4px">
+            容器内对应 /media/&lt;路径&gt;,NAS 目录映射见 docker-compose
+          </div>
+        </el-form-item>
+        <el-form-item label="命名模板">
+          <NamingTemplateEditor
+            v-model="form.naming_template"
+            :library-id="editing?.id"
+            :media-type="form.type"
+            placeholder="如:{title} ({year})/{originalTitle;title} ({year}) [{resolution}]{ext}"
+          />
+          <div class="muted" style="font-size:12px">
+            点下方标签可插入 token;支持回退语法 <code>{a;b;c}</code>(取第一个非空值)
+            <span v-if="form.type === 'tv'"> · 剧集额外支持 {season} {episode} {seasonEpisode} {showTitle}</span>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="form.type === 'tv'" label="剧集文件夹模板">
+          <el-input v-model="form.tv_show_template" placeholder="如:{showTitle} ({year})" />
+          <div class="muted" style="font-size:12px;margin-top:4px">用于重命名剧集的根文件夹</div>
+        </el-form-item>
+        <el-form-item label="扫描后自动刮削">
+          <el-switch v-model="form.auto_scrape" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="save">保存</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<style scoped>
+.header { display: flex; justify-content: space-between; align-items: center; }
+</style>
