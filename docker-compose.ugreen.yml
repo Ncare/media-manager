@@ -1,0 +1,42 @@
+# =========================================================================
+#  绿联 UGOS Pro 专用部署模板
+#
+#  使用方法:
+#    1. 复制下面 services: 到 volumes: 之间的全部内容
+#    2. 按注释把 4 处【需要修改】的地方改成你的实际值
+#    3. 粘贴到绿联 Docker 应用 → 项目 → 新建 的 compose 框里
+#    4. 点「部署 / 启动」
+#
+#  说明:这是纯图形化版本,所有配置直接写在下面,不需要 .env 文件。
+#  镜像来自 GHCR 公开仓库,绿联会自动拉取,无需登录。
+# =========================================================================
+services:
+  backend:
+    image: ghcr.io/你的GitHub用户名/media-manager-backend:latest   # 【1】改成你的 GitHub 用户名(全小写)
+    container_name: media-manager-backend
+    environment:
+      - TMDB_API_KEY=你的TMDB密钥          # 【2】去 themoviedb.org 免费申请;没有就留空,只是没海报
+      - TMDB_LANGUAGE=zh-CN
+      - MEDIA_ROOT=/media
+      - DB_PATH=/data/media_manager.db
+      - PUID=1000                            # 【3】可填 1000;绿联权限问题再调
+      - PGID=1000                            # 【3】可填 1000
+      - CORS_ORIGINS=*
+    volumes:
+      - /volume1/你的媒体目录:/media          # 【4】冒号左边改成你 NAS 上媒体文件夹的真实路径(文件管理右键→属性可看)
+      - media-manager-data:/data             # 数据库持久化,保持不动
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/你的GitHub用户名/media-manager-frontend:latest  # 【1】改成你的 GitHub 用户名(全小写)
+    container_name: media-manager-frontend
+    ports:
+      - "8080:80"                            # 左边是对外访问端口,8080 被占用就改 8081/3000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  media-manager-data:
