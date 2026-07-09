@@ -62,6 +62,9 @@ async function save() {
         <el-tag :type="settings.tmdb_configured ? 'success' : 'danger'" size="small">
           {{ settings.tmdb_configured ? '已配置' : '未配置' }}
         </el-tag>
+        <span v-if="settings.tmdb_key_masked" class="muted" style="margin-left:8px">
+          当前 Key: <code>{{ settings.tmdb_key_masked }}</code>
+        </span>
         <span class="muted" style="margin-left:8px">媒体根目录: {{ settings.media_root }}</span>
       </div>
 

@@ -118,4 +118,5 @@ export interface AppSettings {
   tmdb_configured: boolean
   tmdb_language: string
   media_root: string
+  tmdb_key_masked: string | null
 }

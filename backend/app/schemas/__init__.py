@@ -190,6 +190,7 @@ class SettingsRead(BaseModel):
     tmdb_configured: bool
     tmdb_language: str
     media_root: str
+    tmdb_key_masked: str | None = None  # e.g. "****abcd"; None when no key set
 
 
 class SettingsUpdate(BaseModel):
