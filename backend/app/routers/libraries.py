@@ -4,8 +4,9 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from app.core.naming import DEFAULT_MOVIE_TEMPLATE, DEFAULT_TV_EPISODE_TEMPLATE
 from app.db import get_session
-from app.models.library import Library
+from app.models.library import Library, LibraryType
 from app.models.media import Episode, Movie, TvShow
 from app.schemas import LibraryCreate, LibraryRead, LibraryUpdate
 from app.services import tasks
@@ -33,7 +34,12 @@ def list_libraries(session: Session = Depends(get_session)):
 
 @router.post("", response_model=LibraryRead, status_code=201)
 def create_library(payload: LibraryCreate, session: Session = Depends(get_session)):
-    lib = Library(**payload.model_dump())
+    data = payload.model_dump()
+    # A TV library should use the episode template by default; if the caller
+    # didn't override naming_template it still carries the movie default, so fix it.
+    if data.get("type") == LibraryType.tv and data.get("naming_template") == DEFAULT_MOVIE_TEMPLATE:
+        data["naming_template"] = DEFAULT_TV_EPISODE_TEMPLATE
+    lib = Library(**data)
     session.add(lib)
     session.commit()
     session.refresh(lib)

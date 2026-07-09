@@ -87,6 +87,12 @@ export interface RenamePreviewItem {
   to_path: string
   conflict: boolean
   reason?: string | null
+  // TV-only grouping metadata (undefined for movies)
+  show_id?: number | null
+  show_title?: string | null
+  season_number?: number | null
+  to_show_folder?: string | null
+  to_season_folder?: string | null
 }
 
 export interface RenameToken {

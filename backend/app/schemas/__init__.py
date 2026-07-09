@@ -147,6 +147,14 @@ class RenamePreviewItem(BaseModel):
     to_path: str
     conflict: bool = False
     reason: str | None = None
+    # TV-only grouping metadata (None for movies); lets the frontend build a
+    # show -> season -> episode tree view.
+    show_id: int | None = None
+    show_title: str | None = None
+    season_number: int | None = None
+    # computed new folder names (TV only), shown on the group rows of the tree.
+    to_show_folder: str | None = None
+    to_season_folder: str | None = None
 
 
 class RenamePreview(BaseModel):

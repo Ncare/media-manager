@@ -10,7 +10,10 @@ const props = defineProps<{
   label?: string
   placeholder?: string
 }>()
-const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
+const emit = defineEmits<{
+  (e: 'update:modelValue', v: string): void
+  (e: 'change', v: string): void
+}>()
 
 const tokens = ref<RenameToken[]>([])
 const loading = ref(false)
@@ -49,12 +52,15 @@ async function refreshPreview() {
 }
 
 function insertToken(t: string) {
-  // insert at cursor / append
-  emit('update:modelValue', props.modelValue + `{${t}}`)
+  const v = props.modelValue + `{${t}}`
+  emit('update:modelValue', v)
+  emit('change', v)
 }
 
 function onInput(e: Event) {
-  emit('update:modelValue', (e.target as HTMLInputElement).value)
+  const v = (e.target as HTMLInputElement).value
+  emit('update:modelValue', v)
+  emit('change', v)
 }
 
 function shortPath(p: string) {

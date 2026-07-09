@@ -11,6 +11,7 @@ Fallback syntax ``{originalTitle;title}`` picks the first non-empty token.
 from __future__ import annotations
 
 import os
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -74,6 +75,7 @@ def preview_movies(session: Session, library: Library, template: str | None = No
 
 def preview_episodes(session: Session, library: Library, template: str | None = None) -> list[RenamePreviewItem]:
     template = template or library.naming_template
+    show_template = library.tv_show_template or "{showTitle} ({year})"
     episodes = session.exec(select(Episode).where(Episode.library_id == library.id)).all()
     items: list[RenamePreviewItem] = []
     for ep in episodes:
@@ -83,13 +85,38 @@ def preview_episodes(session: Session, library: Library, template: str | None = 
         show = session.get(TvShow, ep.show_id)
         ctx = _row_context(ep, show=show, ext=src.suffix)
         target_rel = apply_template(template, ctx)
-        dest = _resolve_episode_dest(src, target_rel, show, ep.season_number)
+        dest, to_show_folder, to_season_folder = _resolve_episode_dest(
+            src, target_rel, show, ep.season_number, show_template, ctx
+        )
         conflict = dest.exists() and dest.resolve() != src.resolve()
         items.append(RenamePreviewItem(
             media_id=ep.id, media_type="episode",
             from_path=str(src), to_path=str(dest), conflict=conflict,
+            show_id=ep.show_id,
+            show_title=_show_display_name(show),
+            season_number=ep.season_number,
+            to_show_folder=to_show_folder,
+            to_season_folder=to_season_folder,
         ))
     return items
+
+
+def _show_display_name(show: TvShow | None) -> str | None:
+    """Best-effort human name for a show: title -> original_title -> parsed_title -> folder basename."""
+    if show is None:
+        return None
+    for attr in ("title", "original_title", "parsed_title"):
+        v = getattr(show, attr, None)
+        if v:
+            return v
+    # fall back to the folder name
+    try:
+        fp = getattr(show, "folder_path", None)
+        if fp:
+            return Path(fp).name
+    except Exception:
+        pass
+    return None
 
 
 def _resolve_movie_dest(src: Path, target_rel: str) -> Path:
@@ -105,26 +132,49 @@ def _resolve_movie_dest(src: Path, target_rel: str) -> Path:
     return src.parent / target_rel
 
 
-def _resolve_episode_dest(src: Path, target_rel: str, show: TvShow | None, season_num) -> Path:
-    """For episodes, the template usually starts with {showTitle}.
+def _resolve_episode_dest(
+    src: Path,
+    target_rel: str,
+    show: TvShow | None,
+    season_num,
+    show_template: str,
+    ctx: dict,
+) -> tuple[Path, str | None, str | None]:
+    """Resolve an episode's destination and the new show/season folder names.
 
-    We anchor relative to the SHOW folder so the season structure is rebuilt.
-    The first path segment is expected to be the show folder name.
+    The episode template normally renders as ``{showTitle}/Season {season}/file``.
+    We anchor the FULL path under the TV root (the show folder's parent), so the
+    renamed show folder + season folder + filename are all reflected in to_path.
+
+    Returns (dest, to_show_folder, to_season_folder). The folder names are the
+    new names for the tree's group rows; they may equal the originals.
     """
     parts = Path(target_rel).parts
+    # Determine the TV root: the show folder's parent (e.g. .../TV given .../TV/Show).
+    show_folder = Path(show.folder_path) if show is not None else src.parent
+    tv_root = show_folder.parent
+
+    # New show folder name: prefer the explicit tv_show_template, else the first
+    # segment of the episode template (which is usually {showTitle}).
+    to_show_name = apply_template(show_template, ctx).strip() if ctx else None
+    if not to_show_name:
+        to_show_name = parts[0] if parts else show_folder.name
+    to_show_folder = to_show_name or None
+
+    # New season folder name: the middle segment of the rendered template, if any.
+    to_season_folder = parts[1] if len(parts) >= 3 else None
+
+    # Reconstruct dest anchored at the TV root, keeping the (possibly renamed)
+    # show + season + filename structure from the rendered template.
     if len(parts) >= 2:
-        # show_folder / [Season x /] filename
-        show_folder = src.parent
-        # walk up to the show folder: src is typically .../Show/Season 01/ep
-        # detect by matching the show's stored folder_path.
-        if show is not None:
-            try:
-                sp = Path(show.folder_path)
-                show_folder = sp
-            except Exception:
-                pass
-        return show_folder / Path(*parts[1:]) if len(parts) > 1 else show_folder / target_rel
-    return src.parent / target_rel
+        # Replace the template's show segment with the canonical show-folder name
+        # (so show folder + tv_show_template stay consistent), keep the rest.
+        tail = Path(*parts[1:]) if len(parts) > 1 else Path(target_rel)
+        dest = tv_root / to_show_name / tail
+    else:
+        # No directory structure in template → keep file beside the season folder.
+        dest = show_folder / target_rel
+    return dest, to_show_folder, to_season_folder
 
 
 def execute(
@@ -177,8 +227,71 @@ def execute(
         ))
         moved += 1
 
+    # TV: prune now-empty season/show folders left behind, and refresh the show's
+    # folder_path in the DB so a later rescan / undo stays consistent.
+    if media_type != "movie":
+        _cleanup_tv_folders(session, moved_previews=[
+            (by_media[mid], Path(by_media[mid].from_path), Path(by_media[mid].to_path))
+            for mid in media_ids if mid in by_media
+        ])
+
     session.commit()
     return batch_id, moved
+
+
+def _cleanup_tv_folders(session: Session, moved_previews: list[tuple]) -> None:
+    """After moving episode files, delete emptied season/show folders and point
+    each show's folder_path at its new location (deduplicated by show_id)."""
+    # Map show_id -> (old show folder, new show folder) from the moved episodes.
+    show_moves: dict[int, tuple[Path, Path]] = {}
+    for plan, _src, dest in moved_previews:
+        if plan.show_id is None:
+            continue
+        old_show = Path(plan.from_path).parent
+        # src is .../Show/Season xx/file  → show folder is two levels up
+        try:
+            old_show = Path(plan.from_path).parents[1]
+        except IndexError:
+            old_show = Path(plan.from_path).parent
+        new_show = dest.parents[1] if len(dest.parents) > 1 else dest.parent
+        show_moves[plan.show_id] = (old_show, new_show)
+
+    for show_id, (old_show, new_show) in show_moves.items():
+        # update DB folder_path to the new location
+        show = session.get(TvShow, show_id)
+        if show is not None and str(new_show) != show.folder_path:
+            show.folder_path = str(new_show)
+            show.updated_at = datetime.utcnow()
+            session.add(show)
+        # remove emptied season folders under the OLD show folder, then the
+        # show folder itself if fully empty.
+        _prune_empty_dirs(old_show)
+
+
+def _prune_empty_dirs(root: Path, *, max_depth: int = 3) -> None:
+    """Delete leaf directories that are empty, walking bottom-up, stopping at root."""
+    if not root.exists() or not root.is_dir():
+        return
+    for _ in range(max_depth):
+        emptied = False
+        for dirpath, dirnames, filenames in os.walk(root, topdown=False):
+            d = Path(dirpath)
+            if d == root:
+                continue
+            if not dirnames and not filenames:
+                try:
+                    d.rmdir()
+                    emptied = True
+                except OSError:
+                    pass
+        if not emptied:
+            break
+    # finally the show folder itself
+    try:
+        if root.exists() and root.is_dir() and not any(root.iterdir()):
+            root.rmdir()
+    except OSError:
+        pass
 
 
 def undo(session: Session, batch_id: str | None = None) -> int:
@@ -194,6 +307,7 @@ def undo(session: Session, batch_id: str | None = None) -> int:
     logs = session.exec(select(RenameLog).where(RenameLog.batch_id == batch_id, RenameLog.reversed == False)).all()
     reverted = 0
     # reverse the move, and patch DB paths back.
+    moved_back_paths: list[Path] = []
     for log in logs:
         src = Path(log.to_path)
         dest = Path(log.from_path)
@@ -209,10 +323,46 @@ def undo(session: Session, batch_id: str | None = None) -> int:
         finally:
             if moved_back:
                 _restore_db_path(session, log)
+                moved_back_paths.append(src)
             log.reversed = True
             session.add(log)
+
+    # TV undo: also restore folder_path and prune the now-empty new folders.
+    if logs and logs[0].media_type != "movie":
+        _undo_tv_folders(session, logs, moved_back_paths)
+
     session.commit()
     return reverted
+
+
+def _undo_tv_folders(session: Session, logs: list[RenameLog], moved_back_src: list[Path]) -> None:
+    """Restore show folder_path to the originals and drop emptied new folders."""
+    # The "new" (to-be-removed) show folders are the parents of moved-back srcs.
+    new_show_dirs: set[Path] = set()
+    show_ids_to_restore: dict[int, str] = {}
+    for log, src in zip(logs, moved_back_src):
+        try:
+            new_show_dirs.add(src.parents[1])
+        except IndexError:
+            new_show_dirs.add(src.parent)
+        # original show folder = from_path's show dir (.../Show/Season xx/file)
+        try:
+            orig_show = str(Path(log.from_path).parents[1])
+        except IndexError:
+            orig_show = str(Path(log.from_path).parent)
+        # find the show via the episode row
+        if log.media_id is not None:
+            ep = session.get(Episode, log.media_id)
+            if ep is not None:
+                show_ids_to_restore[ep.show_id] = orig_show
+    for show_id, orig_folder in show_ids_to_restore.items():
+        show = session.get(TvShow, show_id)
+        if show is not None and show.folder_path != orig_folder:
+            show.folder_path = orig_folder
+            show.updated_at = datetime.utcnow()
+            session.add(show)
+    for d in new_show_dirs:
+        _prune_empty_dirs(d)
 
 
 def _restore_db_path(session: Session, log: RenameLog) -> None:

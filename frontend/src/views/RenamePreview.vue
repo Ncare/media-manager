@@ -33,29 +33,44 @@ watch(selectedLibId, (id) => {
   if (id) preview()
 })
 
-// keep the table's "new path" column in sync when the custom template is edited.
-// the editor already has its own per-row live preview; this re-runs the full table.
-let tplTimer: number | undefined
-watch(activeTemplate, () => {
-  if (!selectedLibId.value) return
-  if (tplTimer) clearTimeout(tplTimer)
-  tplTimer = window.setTimeout(() => preview(), 450)
+// Re-run the table preview whenever the user toggles "custom template" on/off.
+// (typing inside the editor is handled by onTemplateInput below.)
+watch(useCustomTemplate, (on) => {
+  if (on && selectedLibId.value) debouncedPreview()
 })
 
-async function preview() {
+// race guard: only the latest preview request may update the table, so a fast
+// typist never sees a stale (slow, older) response overwrite a newer one.
+let previewReqId = 0
+
+async function preview(preserveSelection = false) {
   if (!selectedLibId.value) return
+  const reqId = ++previewReqId
   loading.value = true
-  selected.value = []
+  if (!preserveSelection) selected.value = []
   try {
     const data = await renameApi.preview(selectedLibId.value, activeTemplate.value)
+    if (reqId !== previewReqId) return   // a newer request superseded us; discard
     items.value = data.items
-    // do NOT auto-select — let the user choose which rows to rename
-    selected.value = []
+    if (!preserveSelection) selected.value = []
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '预览失败')
+    if (reqId === previewReqId) ElMessage.error(e?.response?.data?.detail || '预览失败')
   } finally {
-    loading.value = false
+    if (reqId === previewReqId) loading.value = false
   }
+}
+
+// the editor emits @change on every keystroke; debounce the table re-preview so
+// the "new path" column tracks the template live without hammering the API.
+let tplTimer: number | undefined
+function onTemplateInput() {
+  if (!selectedLibId.value) return
+  if (tplTimer) clearTimeout(tplTimer)
+  tplTimer = window.setTimeout(() => preview(true), 450)
+}
+function debouncedPreview() {
+  if (tplTimer) clearTimeout(tplTimer)
+  tplTimer = window.setTimeout(() => preview(true), 200)
 }
 
 async function execute() {
@@ -99,6 +114,80 @@ function shortPath(p: string) {
   const parts = p.split('/')
   return parts.slice(-2).join('/')
 }
+
+// ---- TV tree view ----
+// Group flat episode items into a show -> season -> episode tree so the preview
+// table can render hierarchically (el-table tree mode).
+interface TvNode {
+  id: string                       // unique key for row-key
+  _group: boolean                  // true = show/season folder row (not selectable)
+  label: string                    // display name for group rows
+  children?: TvNode[]              // only on group rows
+  // group-only: the renamed folder name (shown in the "new path" column)
+  newFolder?: string
+  // leaf-only fields mirror RenamePreviewItem
+  media_id?: number
+  from_path?: string
+  to_path?: string
+  conflict?: boolean
+}
+
+const isTv = computed(() => selectedLib.value?.type === 'tv')
+
+const tvTree = computed<TvNode[]>(() => {
+  if (!isTv.value) return []
+  // group by show, then by season
+  const shows = new Map<number, { title: string; seasons: Map<number, RenamePreviewItem[]> }>()
+  for (const it of items.value) {
+    if (it.show_id == null) continue
+    let s = shows.get(it.show_id)
+    if (!s) {
+      s = { title: it.show_title || `剧集 ${it.show_id}`, seasons: new Map() }
+      shows.set(it.show_id, s)
+    }
+    const sn = it.season_number ?? 0
+    let arr = s.seasons.get(sn)
+    if (!arr) {
+      arr = []
+      s.seasons.set(sn, arr)
+    }
+    arr.push(it)
+  }
+  const tree: TvNode[] = []
+  for (const [showId, s] of shows) {
+    const seasonNodes: TvNode[] = []
+    for (const [sn, eps] of [...s.seasons.entries()].sort((a, b) => a[0] - b[0])) {
+      const leafs: TvNode[] = eps.map((ep) => ({
+        id: `e-${ep.media_id}`,
+        _group: false,
+        label: ep.from_path.split('/').pop() || ep.to_path.split('/').pop() || '',
+        media_id: ep.media_id,
+        from_path: ep.from_path,
+        to_path: ep.to_path,
+        conflict: ep.conflict,
+      }))
+      // season folder new name: take from any child's to_season_folder
+      const seasonFolder = eps.find((e) => e.to_season_folder)?.to_season_folder
+      seasonNodes.push({
+        id: `s-${showId}-${sn}`,
+        _group: true,
+        label: sn > 0 ? `第 ${sn} 季` : '特别篇',
+        newFolder: seasonFolder || undefined,
+        children: leafs,
+      })
+    }
+    // show folder new name: take from any child's to_show_folder
+    const showFolder = [...s.seasons.values()].flat().find((e) => e.to_show_folder)?.to_show_folder
+    tree.push({
+      id: `t-${showId}`,
+      _group: true,
+      label: s.title,
+      newFolder: showFolder || undefined,
+      children: seasonNodes,
+    })
+  }
+  return tree
+})
 </script>
 
 <template>
@@ -132,11 +221,13 @@ function shortPath(p: string) {
         :library-id="selectedLibId"
         :media-type="selectedLib?.type || 'movie'"
         placeholder="如:{title} ({year})/{originalTitle;title} ({year}) [{resolution};{source}]{ext}"
+        @change="onTemplateInput"
       />
     </div>
 
+    <!-- Movies: flat table -->
     <el-table
-      v-if="items.length"
+      v-if="items.length && !isTv"
       :data="items"
       style="width:100%;margin-top:16px"
       @selection-change="(rows: RenamePreviewItem[]) => (selected = rows.map((r) => r.media_id))"
@@ -162,6 +253,47 @@ function shortPath(p: string) {
         </template>
       </el-table-column>
     </el-table>
+
+    <!-- TV: hierarchical tree table (show -> season -> episode) -->
+    <el-table
+      v-else-if="isTv && tvTree.length"
+      :data="tvTree"
+      row-key="id"
+      :tree-props="{ children: 'children' }"
+      default-expand-all
+      style="width:100%;margin-top:16px"
+      @selection-change="(rows: TvNode[]) => (selected = rows.filter((r) => !r._group).map((r) => r.media_id!))"
+    >
+      <el-table-column type="selection" width="45" :selectable="(row: TvNode) => !row._group && !row.conflict" />
+      <el-table-column label="名称">
+        <template #default="{ row }">
+          <span v-if="row._group" class="group-label">
+            {{ row.label }}
+            <span v-if="row.newFolder && row.newFolder !== row.label" class="folder-new">→ {{ row.newFolder }}</span>
+          </span>
+          <span v-else :class="{ conflict: row.conflict }">{{ row.label }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="" width="40" center>
+        <template #default="{ row }">
+          <span v-if="!row._group">→</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="重命名为">
+        <template #default="{ row }">
+          <!-- group rows: folder rename shown above (in 名称 column); leaf rows: new filename -->
+          <span v-if="!row._group" :class="{ conflict: row.conflict }">{{ shortPath(row.to_path) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="120">
+        <template #default="{ row }">
+          <template v-if="!row._group">
+            <el-tag v-if="row.conflict" size="small" type="danger">冲突</el-tag>
+            <el-tag v-else size="small" type="success">可重命名</el-tag>
+          </template>
+        </template>
+      </el-table-column>
+    </el-table>
     <el-empty v-else-if="!loading" description="选择媒体库后将自动加载资源列表" />
   </div>
 </template>
@@ -175,4 +307,6 @@ function shortPath(p: string) {
 .panel-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
 .panel-title .help { color: var(--muted); cursor: help; }
 .conflict { color: var(--danger); }
+.group-label { font-weight: 600; color: var(--accent); }
+.folder-new { color: var(--accent-2); font-weight: 400; font-size: 13px; }
 </style>
