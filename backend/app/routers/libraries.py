@@ -1,9 +1,11 @@
 """Library CRUD + scan trigger."""
 from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
+from app.config import settings
 from app.core.naming import DEFAULT_MOVIE_TEMPLATE, DEFAULT_TV_EPISODE_TEMPLATE
 from app.db import get_session
 from app.models.library import Library, LibraryType
@@ -76,3 +78,39 @@ def trigger_scan(library_id: int, session: Session = Depends(get_session)):
         raise HTTPException(404, "library not found")
     task = tasks.run_scan(library_id)
     return {"task_id": task.id, "status": task.status}
+
+
+@router.get("/browse")
+def browse_dirs(path: str | None = Query(default=None)) -> list[dict]:
+    """List subdirectories under the media root for the directory picker.
+
+    `path` is relative to MEDIA_ROOT (e.g. "Movies" or "Movies/Action");
+    omitted/empty → list MEDIA_ROOT itself. Only directories are returned
+    (files are hidden), and a path-traversal guard keeps the result inside
+    MEDIA_ROOT so callers can't escape the mounted media tree.
+    """
+    root: Path = settings.media_root.resolve()
+    if path:
+        # relative segments only — reject anything that tries to go up
+        target = (root / path).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            raise HTTPException(400, "path outside media root")
+    else:
+        target = root
+
+    if not target.is_dir():
+        raise HTTPException(404, "directory not found")
+
+    out = []
+    try:
+        for entry in sorted(target.iterdir(), key=lambda p: p.name.lower()):
+            if entry.is_dir():
+                out.append({
+                    "name": entry.name,
+                    "path": str(entry.relative_to(root)),
+                })
+    except PermissionError:
+        raise HTTPException(403, "permission denied")
+    return out

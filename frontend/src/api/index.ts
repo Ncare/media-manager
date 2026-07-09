@@ -21,6 +21,8 @@ export const librariesApi = {
     http.patch<Library>(`/libraries/${id}`, data).then((r) => r.data),
   remove: (id: number) => http.delete(`/libraries/${id}`),
   scan: (id: number) => http.post<{ task_id: number; status: string }>(`/libraries/${id}/scan`).then((r) => r.data),
+  browse: (path = '') =>
+    http.get<{ name: string; path: string }[]>('/libraries/browse', { params: { path } }).then((r) => r.data),
 }
 
 // ---- Movies ----

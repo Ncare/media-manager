@@ -4,10 +4,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { librariesApi } from '@/api'
 import type { Library, LibraryType } from '@/types'
 import NamingTemplateEditor from '@/components/NamingTemplateEditor.vue'
+import DirectoryBrowser from '@/components/DirectoryBrowser.vue'
 
 const libraries = ref<Library[]>([])
 const loading = ref(false)
 const dialogVisible = ref(false)
+const browserVisible = ref(false)
 const editing = ref<Library | null>(null)
 const form = ref({
   name: '',
@@ -92,6 +94,10 @@ async function remove(lib: Library) {
   ElMessage.success('已删除')
   load()
 }
+
+function onPickPath(path: string) {
+  form.value.root_path = path
+}
 </script>
 
 <template>
@@ -133,9 +139,13 @@ async function remove(lib: Library) {
           </el-radio-group>
         </el-form-item>
         <el-form-item label="路径">
-          <el-input v-model="form.root_path" placeholder="相对于媒体根目录,例如:Movies" />
+          <el-input v-model="form.root_path" placeholder="相对于媒体根目录,例如:Movies">
+            <template #append>
+              <el-button @click="browserVisible = true">浏览</el-button>
+            </template>
+          </el-input>
           <div class="muted" style="font-size:12px;margin-top:4px">
-            容器内对应 /media/&lt;路径&gt;,NAS 目录映射见 docker-compose
+            点「浏览」从目录树选择,或手动输入;容器内对应 /media/&lt;路径&gt;
           </div>
         </el-form-item>
         <el-form-item label="命名模板">
@@ -163,6 +173,12 @@ async function remove(lib: Library) {
         <el-button type="primary" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <DirectoryBrowser
+      v-model="browserVisible"
+      :current="form.root_path"
+      @pick="onPickPath"
+    />
   </div>
 </template>
 
