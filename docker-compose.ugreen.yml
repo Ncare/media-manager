@@ -1,41 +1,31 @@
 # =========================================================================
-#  绿联 UGOS Pro 专用部署模板
+#  绿联 UGOS Pro 专用部署模板 —— all-in-one 单容器版
+#
+#  一个镜像、一个容器、一个端口,部署最省心。
 #
 #  使用方法:
 #    1. 复制下面 services: 到 volumes: 之间的全部内容
-#    2. 按注释把 4 处【需要修改】的地方改成你的实际值
+#    2. 只需改 2 处【需要修改】:TMDB 密钥 + 媒体目录路径
 #    3. 粘贴到绿联 Docker 应用 → 项目 → 新建 的 compose 框里
 #    4. 点「部署 / 启动」
 #
-#  说明:这是纯图形化版本,所有配置直接写在下面,不需要 .env 文件。
 #  镜像来自 GHCR 公开仓库,绿联会自动拉取,无需登录。
+#  访问地址:http://你的NAS的IP:9000
 # =========================================================================
 services:
-  backend:
-    image: ghcr.io/你的GitHub用户名/media-manager-backend:latest   # 【1】改成你的 GitHub 用户名(全小写)
-    container_name: media-manager-backend
+  media-manager:
+    image: ghcr.io/ncare/media-manager:latest
+    container_name: media-manager
     environment:
-      - TMDB_API_KEY=你的TMDB密钥          # 【2】去 themoviedb.org 免费申请;没有就留空,只是没海报
+      - TMDB_API_KEY=改这里填你的TMDB密钥      # 【1】填你的 key;没 key 先留空字符串也行
       - TMDB_LANGUAGE=zh-CN
-      - MEDIA_ROOT=/media
-      - DB_PATH=/data/media_manager.db
-      - PUID=1000                            # 【3】可填 1000;绿联权限问题再调
-      - PGID=1000                            # 【3】可填 1000
-      - CORS_ORIGINS=*
+      - PUID=1000
+      - PGID=1000
     volumes:
-      - /volume1/你的媒体目录:/media          # 【4】冒号左边改成你 NAS 上媒体文件夹的真实路径(文件管理右键→属性可看)
+      - /这里换成你NAS的媒体目录绝对路径:/media   # 【2】见下方说明,在 NAS 上查
       - media-manager-data:/data             # 数据库持久化,保持不动
     ports:
-      - "8000:8000"
-    restart: unless-stopped
-
-  frontend:
-    image: ghcr.io/你的GitHub用户名/media-manager-frontend:latest  # 【1】改成你的 GitHub 用户名(全小写)
-    container_name: media-manager-frontend
-    ports:
-      - "8080:80"                            # 左边是对外访问端口,8080 被占用就改 8081/3000
-    depends_on:
-      - backend
+      - "9000:80"                            # 访问端口:浏览器开 http://NAS的IP:9000
     restart: unless-stopped
 
 volumes:
