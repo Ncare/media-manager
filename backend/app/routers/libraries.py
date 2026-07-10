@@ -112,5 +112,9 @@ def browse_dirs(path: str | None = Query(default=None)) -> list[dict]:
                     "path": str(entry.relative_to(root)),
                 })
     except PermissionError:
-        raise HTTPException(403, "permission denied")
+        raise HTTPException(
+            403,
+            "无权读取该目录。请检查容器内后端进程的 uid 是否有权限访问挂载的媒体目录；"
+            "可在 compose 里设置 PUID/PGID 匹配目录属主，或确认目录对其他用户可读。",
+        )
     return out
