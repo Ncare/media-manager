@@ -16,42 +16,34 @@ const emit = defineEmits<{
 interface DirNode {
   name: string
   path: string
-  isLeaf?: boolean
 }
 
 const treeRef = ref()
-// Root node is the media root itself; its children are loaded on expand.
-const treeData = ref<DirNode[]>([])
+// Bumped on every open so el-tree fully remounts with a clean lazy store,
+// avoiding stale/duplicated nodes from a previous session.
+const treeKey = ref(0)
 const selected = ref('')
 
 watch(
   () => props.modelValue,
-  async (open) => {
-    if (!open) return
-    selected.value = props.current ?? ''
-    try {
-      treeData.value = await loadChildren('')
-    } catch (e: any) {
-      ElMessage.error(e?.response?.data?.detail || '读取目录失败')
+  (open) => {
+    if (open) {
+      selected.value = props.current ?? ''
+      treeKey.value++ // fresh tree each open
     }
   },
 )
 
-async function loadChildren(path: string): Promise<DirNode[]> {
-  const dirs = await librariesApi.browse(path)
-  // Children come back as directory-only; we don't know if they have
-  // subdirs until expanded, so mark none as leaf — el-tree will call
-  // load() on expand and show nothing if empty.
-  return dirs.map((d) => ({ name: d.name, path: d.path }))
-}
-
-// Lazy-load children when a node is expanded.
+// Pure lazy loading: el-tree calls this for EVERY level, including the root
+// (level 0, where node.data is undefined). A single data source means no
+// duplication.
 async function load(node: any, resolve: (children: DirNode[]) => void) {
   try {
-    const children = await loadChildren(node.data?.path ?? '')
-    resolve(children)
+    const path = node.level === 0 ? '' : node.data?.path ?? ''
+    const dirs = await librariesApi.browse(path)
+    resolve(dirs.map((d) => ({ name: d.name, path: d.path })))
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '读取子目录失败')
+    ElMessage.error(e?.response?.data?.detail || '读取目录失败')
     resolve([])
   }
 }
@@ -89,14 +81,14 @@ function isSelected(data: DirNode) {
     </div>
     <el-tree
       ref="treeRef"
-      :data="treeData"
+      :key="treeKey"
+      :data="[]"
       node-key="path"
-      :props="{ label: 'name', children: 'children' }"
+      :props="{ label: 'name' }"
       lazy
       :load="load"
       :highlight-current="true"
       :expand-on-click-node="false"
-      :default-expanded-keys="selected ? [selected] : []"
       @node-click="handleNodeClick"
       class="dir-tree"
     >

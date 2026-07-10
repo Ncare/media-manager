@@ -9,6 +9,10 @@ const theme = useThemeStore()
 
 const settings = ref<AppSettings | null>(null)
 const apiKey = ref('')
+// Masked key returned by backend (e.g. "****abcd"); used as the input's
+// initial display so the user can see a key is configured without exposing
+// it. A save only submits the key when the user edits it away from this.
+const maskedKey = ref('')
 const language = ref('zh-CN')
 const saving = ref(false)
 const showKey = ref(false)
@@ -16,15 +20,18 @@ const showKey = ref(false)
 onMounted(async () => {
   settings.value = await settingsApi.get()
   language.value = settings.value.tmdb_language
+  maskedKey.value = settings.value.tmdb_key_masked || ''
+  apiKey.value = maskedKey.value
 })
 
 async function save() {
   saving.value = true
   try {
     const payload: Partial<AppSettings> & { tmdb_api_key?: string } = { tmdb_language: language.value }
-    if (apiKey.value) payload.tmdb_api_key = apiKey.value
+    if (apiKey.value && apiKey.value !== maskedKey.value) payload.tmdb_api_key = apiKey.value
     settings.value = await settingsApi.update(payload)
-    apiKey.value = ''
+    maskedKey.value = settings.value.tmdb_key_masked || ''
+    apiKey.value = maskedKey.value
     ElMessage.success('已保存')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '保存失败')
@@ -62,9 +69,6 @@ async function save() {
         <el-tag :type="settings.tmdb_configured ? 'success' : 'danger'" size="small">
           {{ settings.tmdb_configured ? '已配置' : '未配置' }}
         </el-tag>
-        <span v-if="settings.tmdb_key_masked" class="muted" style="margin-left:8px">
-          当前 Key: <code>{{ settings.tmdb_key_masked }}</code>
-        </span>
         <span class="muted" style="margin-left:8px">媒体根目录: {{ settings.media_root }}</span>
       </div>
 
@@ -73,7 +77,7 @@ async function save() {
           <el-input
             v-model="apiKey"
             :type="showKey ? 'text' : 'password'"
-            placeholder="留空则不修改;申请:themoviedb.org/settings/api"
+            placeholder="未配置;申请:themoviedb.org/settings/api"
           >
             <template #append>
               <el-button @click="showKey = !showKey">{{ showKey ? '隐藏' : '显示' }}</el-button>
