@@ -13,9 +13,9 @@ function applyTheme(theme: ThemePalette) {
   for (const [key, value] of Object.entries(theme.vars)) {
     root.style.setProperty(key, value)
   }
-  // Element Plus has a `.dark` class mode; our light theme clears it.
-  const isDark = theme.id !== 'light'
-  root.classList.toggle('dark', isDark)
+  // Element Plus has a `.dark` class mode; each theme declares its own
+  // luminance so component styling tracks the palette automatically.
+  root.classList.toggle('dark', theme.dark)
 }
 
 export const useThemeStore = defineStore('theme', () => {
