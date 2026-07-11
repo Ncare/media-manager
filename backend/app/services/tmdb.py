@@ -80,6 +80,11 @@ class TMDBClient:
     async def get_episode(self, tmdb_id: int, season: int, episode: int) -> dict:
         return await self._get(f"/tv/{tmdb_id}/season/{season}/episode/{episode}")
 
+    async def test_connection(self) -> dict:
+        """Verify the API key by hitting /configuration (the lightest endpoint
+        that still requires a valid key). Returns TMDB backend info for display."""
+        return await self._get("/configuration")
+
 
 def image_url(path: str | None, size: str = "w500") -> str | None:
     """Build a full TMDB image URL from a poster/backdrop path."""

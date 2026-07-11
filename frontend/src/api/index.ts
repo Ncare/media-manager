@@ -81,4 +81,13 @@ export const settingsApi = {
   get: () => http.get<AppSettings>('/settings').then((r) => r.data),
   update: (data: Partial<AppSettings>) =>
     http.patch<AppSettings>('/settings', data).then((r) => r.data),
+  // Test a TMDB key without saving it. Pass the raw key only when the user has
+  // typed/changed it; a masked value (****abcd) must not be sent — let the
+  // backend fall back to its configured key in that case.
+  testTmdb: (key?: string) =>
+    http
+      .get<{ ok: boolean; message: string; images_base_url?: string }>('/settings/test-tmdb', {
+        params: key ? { key } : {},
+      })
+      .then((r) => r.data),
 }

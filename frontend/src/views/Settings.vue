@@ -16,6 +16,28 @@ const maskedKey = ref('')
 const language = ref('zh-CN')
 const saving = ref(false)
 const showKey = ref(false)
+const testing = ref(false)
+// Result of the last "test connection" run; null = not tested yet.
+const testResult = ref<{ ok: boolean; message: string } | null>(null)
+
+async function testKey() {
+  testing.value = true
+  testResult.value = null
+  try {
+    // If the input still holds the masked value, the user hasn't changed it —
+    // send no key so the backend tests its currently configured key instead.
+    const raw = apiKey.value
+    const key = raw && raw !== maskedKey.value ? raw : undefined
+    testResult.value = await settingsApi.testTmdb(key)
+  } catch (e: any) {
+    testResult.value = {
+      ok: false,
+      message: e?.response?.data?.detail || e?.message || '测试失败,无法连接后端',
+    }
+  } finally {
+    testing.value = false
+  }
+}
 
 onMounted(async () => {
   settings.value = await settingsApi.get()
@@ -81,10 +103,20 @@ async function save() {
           >
             <template #append>
               <el-button @click="showKey = !showKey">{{ showKey ? '隐藏' : '显示' }}</el-button>
+              <el-button :loading="testing" @click="testKey">测试连接</el-button>
             </template>
           </el-input>
+          <el-alert
+            v-if="testResult"
+            :title="testResult.message"
+            :type="testResult.ok ? 'success' : 'error'"
+            show-icon
+            :closable="true"
+            @close="testResult = null"
+            style="margin-top:8px"
+          />
           <div class="muted" style="font-size:12px;margin-top:4px">
-            免费申请:https://www.themoviedb.org/settings/api (选 Developer 类型)
+            免费申请:https://www.themoviedb.org/settings/api (选 Developer 类型) · 填好后可先「测试连接」再保存
           </div>
         </el-form-item>
         <el-form-item label="TMDB 语言">
