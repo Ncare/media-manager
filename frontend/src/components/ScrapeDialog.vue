@@ -21,6 +21,9 @@ const year = ref<number | undefined>(undefined)
 const results = ref<TmdbSearchResult[]>([])
 const loading = ref(false)
 const matching = ref(false)
+// Inline error banner (shown instead of just a toast so the cause survives).
+// null = no error; { title, detail } = error to show.
+const error = ref<{ title: string; detail: string } | null>(null)
 
 watch(
   () => props.visible,
@@ -29,18 +32,43 @@ watch(
       query.value = props.defaultQuery
       year.value = props.defaultYear || undefined
       results.value = []
+      error.value = null
       if (query.value) search()
     }
   }
 )
 
+/** Build a human-readable Chinese error message from an axios error.
+ *  Distinguishes backend/TMDB errors from network/infra failures, since the
+ *  generic "搜索失败" toast hid the real cause (e.g. bad key, NAS offline). */
+function toError(e: any): { title: string; detail: string } {
+  const status = e?.response?.status
+  const detail = e?.response?.data?.detail
+  if (status === 400 || status === 502) {
+    // Backend or TMDB rejected the request — detail is already localized server-side.
+    return { title: '搜索失败', detail: detail || 'TMDB 返回错误' }
+  }
+  if (!e?.response) {
+    // No HTTP response → network/CORS/backend-down. This is the case that was
+    // previously swallowed into a bare "搜索失败".
+    return {
+      title: '无法连接服务',
+      detail: e?.message
+        ? `网络错误:${e.message}(后端可能未启动或不可达)`
+        : '无法连接到后端服务,请检查容器是否在运行',
+    }
+  }
+  return { title: '搜索失败', detail: detail || `服务返回 ${status}` }
+}
+
 async function search() {
   if (!query.value) return
   loading.value = true
+  error.value = null
   try {
     results.value = await scrapeApi.search(query.value, props.mediaType, year.value)
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '搜索失败')
+    error.value = toError(e)
   } finally {
     loading.value = false
   }
@@ -54,7 +82,8 @@ async function match(r: TmdbSearchResult) {
     emit('update:visible', false)
     emit('matched')
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '匹配失败')
+    const err = toError(e)
+    error.value = { title: '匹配失败', detail: err.detail }
   } finally {
     matching.value = false
   }
@@ -69,10 +98,20 @@ async function match(r: TmdbSearchResult) {
     width="640px"
   >
     <div class="search-bar">
-      <el-input v-model="query" placeholder="搜索电影/剧集..." style="flex:1" @keyup.enter="search" />
-      <el-input-number v-model="year" :min="1900" :max="2099" placeholder="年份" style="width:120px" />
+      <el-input v-model="query" placeholder="搜索电影/剧集名称..." style="flex:1" @keyup.enter="search" />
+      <el-input-number v-model="year" :min="1900" :max="2099" placeholder="年份(可选)" style="width:130px" controls-position="right" />
       <el-button type="primary" :loading="loading" @click="search">搜索</el-button>
     </div>
+
+    <el-alert
+      v-if="error"
+      :title="error.title"
+      :description="error.detail"
+      type="error"
+      show-icon
+      :closable="false"
+      style="margin-bottom: 12px"
+    />
 
     <div v-loading="loading" class="results">
       <div v-for="r in results" :key="r.tmdb_id" class="result">
@@ -86,7 +125,7 @@ async function match(r: TmdbSearchResult) {
         </div>
         <el-button type="primary" size="small" :loading="matching" @click="match(r)">匹配</el-button>
       </div>
-      <el-empty v-if="!loading && !results.length" description="输入名称后搜索" />
+      <el-empty v-if="!loading && !results.length && !error" description="输入名称后点「搜索」" />
     </div>
   </el-dialog>
 </template>

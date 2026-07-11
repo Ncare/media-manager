@@ -7,6 +7,9 @@ from app.config import settings
 
 
 class TMDBError(Exception):
+    """Carries a localized (Chinese) message so it can flow straight to the API
+    response. Callers should pass a finished, user-facing string as the message
+    rather than relying on default formatting."""
     pass
 
 
@@ -27,13 +30,28 @@ class TMDBClient:
 
     async def _get(self, path: str, params: dict | None = None) -> dict:
         if not self.configured:
-            raise TMDBError("TMDB API key not configured")
+            raise TMDBError("未配置 TMDB API Key,请在「设置」页填入后再搜索")
         url = f"{settings.tmdb_base_url}{path}"
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get(url, params=self._params(params))
-            if r.status_code != 200:
-                raise TMDBError(f"TMDB {r.status_code}: {r.text[:200]}")
-            return r.json()
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                r = await client.get(url, params=self._params(params))
+        except httpx.TimeoutException:
+            raise TMDBError("连接 TMDB 超时,请检查 NAS 的网络是否能访问外网(api.themoviedb.org)")
+        except httpx.ConnectError:
+            raise TMDBError("无法连接 TMDB 服务器,请检查 NAS 的网络连接或 DNS 设置")
+        except httpx.HTTPError as e:
+            raise TMDBError(f"请求 TMDB 失败:{e}")
+        if r.status_code == 401:
+            raise TMDBError("TMDB API Key 无效或已过期(401 未授权),请到「设置」页检查 Key 是否正确")
+        if r.status_code == 404:
+            raise TMDBError("TMDB 上找不到该资源(404)")
+        if r.status_code == 429:
+            raise TMDBError("TMDB 请求过于频繁,已触发限流(429),请稍后再试")
+        if r.status_code != 200:
+            # Surface TMDB's own error text so it's diagnosable instead of a
+            # bare status code.
+            raise TMDBError(f"TMDB 返回错误 {r.status_code}:{r.text[:200]}")
+        return r.json()
 
     async def search(self, query: str, media_type: str = "movie", year: int | None = None) -> list[dict]:
         # /search/tv and /search/movie both exist; /search/multi also available.

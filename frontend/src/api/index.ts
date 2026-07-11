@@ -44,7 +44,14 @@ export const tvApi = {
 // ---- Scrape ----
 export const scrapeApi = {
   search: (q: string, media_type: string, year?: number) =>
-    http.get<TmdbSearchResult[]>('/search', { params: { q, media_type, year } }).then((r) => r.data),
+    http
+      .get<TmdbSearchResult[]>('/search', {
+        // Omit year entirely when not provided, so the backend treats it as
+        // truly optional (an empty ?year= would be parsed as None too, but
+        // leaving the key out is cleaner).
+        params: { q, media_type, ...(year ? { year } : {}) },
+      })
+      .then((r) => r.data),
   match: (media_type: string, media_id: number, tmdb_id: number, season_number?: number) =>
     http.post('/match', { media_type, media_id, tmdb_id, season_number }).then((r) => r.data),
 }
