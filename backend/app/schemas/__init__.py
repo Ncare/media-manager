@@ -191,8 +191,12 @@ class SettingsRead(BaseModel):
     tmdb_language: str
     media_root: str
     tmdb_key_masked: str | None = None  # e.g. "****abcd"; None when no key set
+    tmdb_proxy_url: str = ""
+    tmdb_proxy_enabled: bool = False
 
 
 class SettingsUpdate(BaseModel):
     tmdb_api_key: str | None = None
     tmdb_language: str | None = None
+    tmdb_proxy_url: str | None = None
+    tmdb_proxy_enabled: bool | None = None

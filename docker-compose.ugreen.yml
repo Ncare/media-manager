@@ -21,6 +21,12 @@ services:
       - TMDB_LANGUAGE=zh-CN
       - PUID=1000
       - PGID=1000
+      # 国内 NAS 访问 TMDB 需要代理,有两种方式(二选一):
+      #   方式 A(推荐):部署后进「设置」页,开启「启用代理」并填代理地址
+      #   方式 B:在这里加环境变量,对所有 HTTP 请求全局生效
+      #           - HTTP_PROXY=http://你的NAS_IP:7890
+      #           - HTTPS_PROXY=http://你的NAS_IP:7890
+      #           - NO_PROXY=localhost,127.0.0.1,192.168.0.0/16
     volumes:
       - /这里换成你NAS的媒体目录绝对路径:/media   # 【2】见下方说明,在 NAS 上查
       - media-manager-data:/data             # 数据库持久化,保持不动

@@ -21,6 +21,8 @@ def _settings_payload() -> SettingsRead:
         tmdb_language=cfg.tmdb_language,
         media_root=str(cfg.media_root),
         tmdb_key_masked=masked,
+        tmdb_proxy_url=cfg.tmdb_proxy_url,
+        tmdb_proxy_enabled=cfg.tmdb_proxy_enabled,
     )
 
 
@@ -35,6 +37,10 @@ def update_settings(payload: SettingsUpdate):
         cfg.tmdb_api_key = payload.tmdb_api_key
     if payload.tmdb_language is not None:
         cfg.tmdb_language = payload.tmdb_language
+    if payload.tmdb_proxy_url is not None:
+        cfg.tmdb_proxy_url = payload.tmdb_proxy_url.strip()
+    if payload.tmdb_proxy_enabled is not None:
+        cfg.tmdb_proxy_enabled = payload.tmdb_proxy_enabled
     return _settings_payload()
 
 

@@ -32,8 +32,17 @@ class TMDBClient:
         if not self.configured:
             raise TMDBError("未配置 TMDB API Key,请在「设置」页填入后再搜索")
         url = f"{settings.tmdb_base_url}{path}"
+        # When the user configures a proxy in the Settings page, pass it
+        # explicitly AND disable trust_env, so the settings-page proxy wins
+        # over any HTTP_PROXY env var from docker-compose. When the page proxy
+        # is off, leave trust_env=True so an env-var proxy still works.
+        use_proxy = settings.tmdb_proxy_enabled and settings.tmdb_proxy_url
+        client_kwargs: dict = {"timeout": 20}
+        if use_proxy:
+            client_kwargs["proxy"] = settings.tmdb_proxy_url
+            client_kwargs["trust_env"] = False
         try:
-            async with httpx.AsyncClient(timeout=20) as client:
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 r = await client.get(url, params=self._params(params))
         except httpx.TimeoutException:
             raise TMDBError("连接 TMDB 超时,请检查 NAS 的网络是否能访问外网(api.themoviedb.org)")

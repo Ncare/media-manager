@@ -14,6 +14,8 @@ const apiKey = ref('')
 // it. A save only submits the key when the user edits it away from this.
 const maskedKey = ref('')
 const language = ref('zh-CN')
+const proxyUrl = ref('')
+const proxyEnabled = ref(false)
 const saving = ref(false)
 const showKey = ref(false)
 const testing = ref(false)
@@ -44,14 +46,22 @@ onMounted(async () => {
   language.value = settings.value.tmdb_language
   maskedKey.value = settings.value.tmdb_key_masked || ''
   apiKey.value = maskedKey.value
+  proxyUrl.value = settings.value.tmdb_proxy_url || ''
+  proxyEnabled.value = settings.value.tmdb_proxy_enabled
 })
 
 async function save() {
   saving.value = true
   try {
-    const payload: Partial<AppSettings> & { tmdb_api_key?: string } = { tmdb_language: language.value }
+    const payload: Partial<AppSettings> & { tmdb_api_key?: string } = {
+      tmdb_language: language.value,
+      tmdb_proxy_url: proxyUrl.value,
+      tmdb_proxy_enabled: proxyEnabled.value,
+    }
     if (apiKey.value && apiKey.value !== maskedKey.value) payload.tmdb_api_key = apiKey.value
     settings.value = await settingsApi.update(payload)
+    proxyUrl.value = settings.value.tmdb_proxy_url || ''
+    proxyEnabled.value = settings.value.tmdb_proxy_enabled
     maskedKey.value = settings.value.tmdb_key_masked || ''
     apiKey.value = maskedKey.value
     ElMessage.success('已保存')
@@ -126,6 +136,25 @@ async function save() {
             <el-option label="日本語" value="ja-JP" />
             <el-option label="繁體中文" value="zh-TW" />
           </el-select>
+        </el-form-item>
+        <el-divider content-position="left">网络代理(国内 NAS 访问 TMDB)</el-divider>
+        <el-form-item label="启用代理">
+          <el-switch v-model="proxyEnabled" />
+          <span class="muted" style="margin-left:12px;font-size:12px">
+            开启后,访问 TMDB 的请求经下方代理地址转发
+          </span>
+        </el-form-item>
+        <el-form-item label="代理地址">
+          <el-input
+            v-model="proxyUrl"
+            :disabled="!proxyEnabled"
+            placeholder="http://192.168.x.x:7890"
+            style="max-width:400px"
+          />
+          <div class="muted" style="font-size:12px;margin-top:4px">
+            填 mihomo / Clash 的 mixed-port 地址(含 NAS 局域网 IP + 端口)。HTTP / SOCKS5 均可。
+            配好后保存,再点上方「测试连接」验证。
+          </div>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="saving" @click="save">保存</el-button>

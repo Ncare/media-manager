@@ -119,4 +119,6 @@ export interface AppSettings {
   tmdb_language: string
   media_root: string
   tmdb_key_masked: string | null
+  tmdb_proxy_url: string
+  tmdb_proxy_enabled: boolean
 }

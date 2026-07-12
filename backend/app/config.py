@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     tmdb_base_url: str = "https://api.themoviedb.org/3"
     tmdb_image_base: str = "https://image.tmdb.org/t/p"
 
+    # --- Proxy (for reaching TMDB from a NAS behind GFW) ---
+    # Set via the Settings page (runtime) or env var TMDB_PROXY_URL. When
+    # tmdb_proxy_enabled is False, httpx uses env vars (HTTP_PROXY/HTTPS_PROXY)
+    # if present, otherwise connects directly.
+    tmdb_proxy_url: str = ""           # e.g. http://192.168.31.7:7890
+    tmdb_proxy_enabled: bool = False
+
     # --- Storage ---
     media_root: Path = Path("/media")
     db_path: Path = Path("/data/media_manager.db")
