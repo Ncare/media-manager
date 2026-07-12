@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.models.library import Library, LibraryType
 from app.models.media import Episode, Movie, Season, TvShow
+from app.services import probe
 
 VIDEO_EXTS = {
     ".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv",
@@ -62,16 +63,31 @@ def _list_to_str(v) -> str | None:
     return str(v)
 
 
-def _technical_fields(info: dict) -> dict:
-    """Extract normalized technical fields from a guessit result."""
-    # resolution: guessit -> 'screen_size' (e.g. '1080p')
+def _technical_fields(info: dict, path: Path | None = None) -> dict:
+    """Extract normalized technical fields.
+
+    Priority: ffprobe (reads the actual file) > guessit (parses the filename).
+    ffprobe gives authoritative codec/resolution/audio but not source/release
+    group (those only exist in filenames), so we merge: probe wins where it has
+    a value, guessit fills the gaps.
+    """
+    # --- guessit baseline (from filename) ---
     resolution = _str_field(info.get("screen_size"))
-    # source: guessit -> 'source' (BluRay) or 'format'; may be a list
     source = _list_to_str(info.get("source") or info.get("format"))
     codec = _list_to_str(info.get("video_codec") or info.get("video_encoder"))
     audio_codec = _list_to_str(info.get("audio_codec"))
     audio_channels = _list_to_str(info.get("audio_channels"))
     group = _str_field(info.get("release_group"))
+
+    # --- ffprobe override (from file internals) ---
+    if path is not None:
+        probed = probe.probe(path)
+        # probe is authoritative for codec/resolution/audio when available
+        codec = probed.get("codec") or codec
+        resolution = probed.get("resolution") or resolution
+        audio_codec = probed.get("audio_codec") or audio_codec
+        audio_channels = probed.get("audio_channels") or audio_channels
+
     return {
         "resolution": resolution,
         "source": source,
@@ -119,7 +135,7 @@ def _scan_movies(session: Session, library: Library, root: Path) -> tuple[int, i
     def _process_file(path: Path):
         nonlocal added, updated
         info = _guess(path.stem)
-        tech = _technical_fields(info)
+        tech = _technical_fields(info, path)
         movie = existing.get(str(path))
         if movie:
             movie.filename = path.name
@@ -206,7 +222,7 @@ def _scan_episodes(session: Session, library: Library, show: TvShow, show_dir: P
             info = _guess(p.name)
             season_num = _int_field(info.get("season"))
             episode_num = _int_field(info.get("episode"))
-            tech = _technical_fields(info)
+            tech = _technical_fields(info, p)
 
             # Ensure a Season row exists.
             season_id = None

@@ -1,10 +1,12 @@
 FROM python:3.12-slim
 
-# guessit / building wheels need build tools
+# guessit / building wheels need build tools; ffmpeg for ffprobe (real codec
+# detection during scan, instead of filename-only guessing)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
         gosu \
+        ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
