@@ -23,6 +23,9 @@ def _settings_payload() -> SettingsRead:
         tmdb_key_masked=masked,
         tmdb_proxy_url=cfg.tmdb_proxy_url,
         tmdb_proxy_enabled=cfg.tmdb_proxy_enabled,
+        default_movie_template=cfg.default_movie_template,
+        default_tv_template=cfg.default_tv_template,
+        default_tv_show_template=cfg.default_tv_show_template,
     )
 
 
@@ -41,6 +44,12 @@ def update_settings(payload: SettingsUpdate):
         cfg.tmdb_proxy_url = payload.tmdb_proxy_url.strip()
     if payload.tmdb_proxy_enabled is not None:
         cfg.tmdb_proxy_enabled = payload.tmdb_proxy_enabled
+    if payload.default_movie_template is not None:
+        cfg.default_movie_template = payload.default_movie_template
+    if payload.default_tv_template is not None:
+        cfg.default_tv_template = payload.default_tv_template
+    if payload.default_tv_show_template is not None:
+        cfg.default_tv_show_template = payload.default_tv_show_template
     return _settings_payload()
 
 

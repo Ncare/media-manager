@@ -121,4 +121,7 @@ export interface AppSettings {
   tmdb_key_masked: string | null
   tmdb_proxy_url: string
   tmdb_proxy_enabled: boolean
+  default_movie_template: string
+  default_tv_template: string
+  default_tv_show_template: string
 }

@@ -19,6 +19,17 @@ class Settings(BaseSettings):
     tmdb_proxy_url: str = ""           # e.g. http://192.168.31.7:7890
     tmdb_proxy_enabled: bool = False
 
+    # --- Default naming templates (applied to newly created libraries) ---
+    # Per-library templates still override these; these are just the defaults
+    # pre-filled when a user creates a movie / tv library.
+    default_movie_template: str = (
+        "{title} ({year})/{titleSort;originalTitle;title} ({year}) [{resolution};{source}]{ext}"
+    )
+    default_tv_template: str = (
+        "{showTitle} ({year})/Season {season}/{showTitle} - S{season}E{episode} - {title}{ext}"
+    )
+    default_tv_show_template: str = "{showTitle} ({year})"
+
     # --- Storage ---
     media_root: Path = Path("/media")
     db_path: Path = Path("/data/media_manager.db")

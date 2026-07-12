@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { settingsApi } from '@/api'
 import { useThemeStore } from '@/stores/theme'
 import type { AppSettings } from '@/types'
+import NamingTemplateEditor from '@/components/NamingTemplateEditor.vue'
 
 const theme = useThemeStore()
 
@@ -16,6 +17,10 @@ const maskedKey = ref('')
 const language = ref('zh-CN')
 const proxyUrl = ref('')
 const proxyEnabled = ref(false)
+// Global default naming templates (applied when creating a new library).
+const movieTemplate = ref('')
+const tvTemplate = ref('')
+const tvShowTemplate = ref('')
 const saving = ref(false)
 const showKey = ref(false)
 const testing = ref(false)
@@ -48,6 +53,9 @@ onMounted(async () => {
   apiKey.value = maskedKey.value
   proxyUrl.value = settings.value.tmdb_proxy_url || ''
   proxyEnabled.value = settings.value.tmdb_proxy_enabled
+  movieTemplate.value = settings.value.default_movie_template || ''
+  tvTemplate.value = settings.value.default_tv_template || ''
+  tvShowTemplate.value = settings.value.default_tv_show_template || ''
 })
 
 async function save() {
@@ -57,11 +65,17 @@ async function save() {
       tmdb_language: language.value,
       tmdb_proxy_url: proxyUrl.value,
       tmdb_proxy_enabled: proxyEnabled.value,
+      default_movie_template: movieTemplate.value,
+      default_tv_template: tvTemplate.value,
+      default_tv_show_template: tvShowTemplate.value,
     }
     if (apiKey.value && apiKey.value !== maskedKey.value) payload.tmdb_api_key = apiKey.value
     settings.value = await settingsApi.update(payload)
     proxyUrl.value = settings.value.tmdb_proxy_url || ''
     proxyEnabled.value = settings.value.tmdb_proxy_enabled
+    movieTemplate.value = settings.value.default_movie_template || ''
+    tvTemplate.value = settings.value.default_tv_template || ''
+    tvShowTemplate.value = settings.value.default_tv_show_template || ''
     maskedKey.value = settings.value.tmdb_key_masked || ''
     apiKey.value = maskedKey.value
     ElMessage.success('已保存')
@@ -156,6 +170,31 @@ async function save() {
           <div class="muted" style="font-size:12px;margin-top:4px">
             填 mihomo / Clash 的 mixed-port 地址(含 NAS 局域网 IP + 端口)。HTTP / SOCKS5 均可。
             配好后保存,再点上方「测试连接」验证。
+          </div>
+        </el-form-item>
+        <el-divider content-position="left">默认命名模板(新建媒体库时套用)</el-divider>
+        <el-form-item label="电影模板">
+          <NamingTemplateEditor
+            v-model="movieTemplate"
+            media-type="movie"
+            placeholder="新建电影库时的默认命名模板"
+          />
+        </el-form-item>
+        <el-form-item label="剧集模板">
+          <NamingTemplateEditor
+            v-model="tvTemplate"
+            media-type="tv"
+            placeholder="新建剧集库时的默认集命名模板"
+          />
+        </el-form-item>
+        <el-form-item label="剧集文件夹">
+          <el-input
+            v-model="tvShowTemplate"
+            placeholder="如:{showTitle} ({year})"
+            style="max-width:400px"
+          />
+          <div class="muted" style="font-size:12px;margin-top:4px">
+            新建剧集库时,剧集根文件夹的默认命名模板
           </div>
         </el-form-item>
         <el-form-item>

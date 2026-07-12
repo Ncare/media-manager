@@ -37,10 +37,18 @@ def list_libraries(session: Session = Depends(get_session)):
 @router.post("", response_model=LibraryRead, status_code=201)
 def create_library(payload: LibraryCreate, session: Session = Depends(get_session)):
     data = payload.model_dump()
-    # A TV library should use the episode template by default; if the caller
-    # didn't override naming_template it still carries the movie default, so fix it.
-    if data.get("type") == LibraryType.tv and data.get("naming_template") == DEFAULT_MOVIE_TEMPLATE:
-        data["naming_template"] = DEFAULT_TV_EPISODE_TEMPLATE
+    # Use the global default templates configured on the Settings page as the
+    # per-library template when the payload carries the hard-coded default.
+    # This way, changing the default once in Settings applies to every new
+    # library, while still letting each library be overridden individually.
+    if data.get("type") == LibraryType.tv:
+        if data.get("naming_template") == DEFAULT_MOVIE_TEMPLATE:
+            data["naming_template"] = settings.default_tv_template or DEFAULT_TV_EPISODE_TEMPLATE
+        if not data.get("tv_show_template") or data.get("tv_show_template") == DEFAULT_TV_SHOW_TEMPLATE:
+            data["tv_show_template"] = settings.default_tv_show_template or DEFAULT_TV_SHOW_TEMPLATE
+    else:
+        if data.get("naming_template") == DEFAULT_MOVIE_TEMPLATE:
+            data["naming_template"] = settings.default_movie_template or DEFAULT_MOVIE_TEMPLATE
     lib = Library(**data)
     session.add(lib)
     session.commit()
