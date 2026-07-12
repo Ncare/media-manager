@@ -59,6 +59,12 @@ export const scrapeApi = {
 // ---- Rename ----
 export const renameApi = {
   tokens: () => http.get<{ tokens: RenameToken[] }>('/rename/tokens').then((r) => r.data.tokens),
+  tokenAvailability: (libraryId: number, mediaType: string) =>
+    http
+      .get<Record<string, 'filled' | 'empty'>>(`/rename/token-availability/${libraryId}`, {
+        params: { media_type: mediaType },
+      })
+      .then((r) => r.data),
   preview: (libraryId: number, template?: string) =>
     http
       .get<{ items: RenamePreviewItem[] }>(`/rename/preview/${libraryId}`, {

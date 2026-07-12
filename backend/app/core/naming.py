@@ -113,8 +113,13 @@ def _build_token_dict(ctx: dict[str, Any]) -> dict[str, str]:
     d["audioChannels"] = _safe_name(pick("audio_channels"))
     d["group"] = _safe_name(pick("release_group", "group"))
 
-    # extension: keep the dot, e.g. ".mkv"
-    ext = pick("ext", "extension", "filename")
+    # extension: keep the dot, e.g. ".mkv". When only a filename is supplied,
+    # extract its suffix rather than using the whole name as the extension.
+    ext = pick("ext", "extension")
+    if not ext:
+        fn = pick("filename")
+        if fn and "." in fn:
+            ext = "." + fn.rsplit(".", 1)[1]
     if ext and "." not in ext:
         ext = "." + ext.lstrip(".")
     d["ext"] = ext
