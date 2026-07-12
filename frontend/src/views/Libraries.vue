@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { librariesApi } from '@/api'
+import { librariesApi, settingsApi } from '@/api'
 import type { Library, LibraryType } from '@/types'
 import NamingTemplateEditor from '@/components/NamingTemplateEditor.vue'
 import DirectoryBrowser from '@/components/DirectoryBrowser.vue'
@@ -11,12 +11,15 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const browserVisible = ref(false)
 const editing = ref<Library | null>(null)
+// Global default templates pulled from the Settings page, so the create form
+// starts with whatever the user configured there (not a stale hard-coded value).
+const globalDefaults = ref({ movie: '', tv: '', tvShow: '' })
 const form = ref({
   name: '',
   type: 'movie' as LibraryType,
   root_path: '',
-  naming_template: '{title} ({year})/{titleSort;originalTitle;title} ({year}) [{resolution};{source}]{ext}',
-  tv_show_template: '{showTitle} ({year})',
+  naming_template: '',
+  tv_show_template: '',
   auto_scrape: true,
 })
 
@@ -28,7 +31,20 @@ async function load() {
     loading.value = false
   }
 }
-onMounted(load)
+
+onMounted(async () => {
+  // Fetch the global default templates once on mount so openCreate() can use
+  // them without an extra round-trip each time the dialog opens.
+  try {
+    const s = await settingsApi.get()
+    globalDefaults.value = {
+      movie: s.default_movie_template,
+      tv: s.default_tv_template,
+      tvShow: s.default_tv_show_template,
+    }
+  } catch { /* fall back to empty; form will show placeholders */ }
+  await load()
+})
 
 function openCreate() {
   editing.value = null
@@ -36,12 +52,22 @@ function openCreate() {
     name: '',
     type: 'movie',
     root_path: '',
-    naming_template: '{title} ({year})/{titleSort;originalTitle;title} ({year}) [{resolution};{source}]{ext}',
-    tv_show_template: '{showTitle} ({year})',
+    // Start from the Settings-page global defaults. type change will swap them.
+    naming_template: globalDefaults.value.movie,
+    tv_show_template: globalDefaults.value.tvShow,
     auto_scrape: true,
   }
   dialogVisible.value = true
 }
+
+// When the user switches type in the create form, swap to that type's global
+// default template (only if they haven't manually edited it yet — but since
+// this is a fresh form, it's always safe to overwrite here).
+watch(() => form.value.type, (t) => {
+  if (editing.value) return  // don't change an existing library's templates
+  form.value.naming_template = t === 'tv' ? globalDefaults.value.tv : globalDefaults.value.movie
+  form.value.tv_show_template = globalDefaults.value.tvShow
+})
 
 function openEdit(lib: Library) {
   editing.value = lib

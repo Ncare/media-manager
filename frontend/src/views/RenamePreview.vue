@@ -28,8 +28,11 @@ onMounted(async () => {
 // and automatically fetch the resource list (no manual "preview" click needed)
 watch(selectedLibId, (id) => {
   useCustomTemplate.value = false
+  // The rename page uses the per-library template as its default. The Settings
+  // page's global default only feeds NEW libraries at creation time; once a
+  // library exists, its own naming_template is authoritative here.
   const lib = libraries.value.find((l) => l.id === id)
-  customTemplate.value = lib ? (lib.type === 'tv' ? lib.naming_template : lib.naming_template) : ''
+  customTemplate.value = lib ? lib.naming_template : ''
   if (id) preview()
 })
 
