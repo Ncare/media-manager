@@ -1,45 +1,61 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { librariesApi, renameApi } from '@/api'
+import { librariesApi, renameApi, settingsApi } from '@/api'
 import type { Library, RenamePreviewItem } from '@/types'
 import NamingTemplateEditor from '@/components/NamingTemplateEditor.vue'
 
 const libraries = ref<Library[]>([])
 const selectedLibId = ref<number | undefined>(undefined)
 const customTemplate = ref('')
-const useCustomTemplate = ref(false)
 const items = ref<RenamePreviewItem[]>([])
 const selected = ref<number[]>([])
 const loading = ref(false)
 const executing = ref(false)
 const lastBatch = ref<string | null>(null)
+// Global default templates from the Settings page — the rename page uses these
+// as the authoritative template, so what you see here always matches Settings.
+const globalDefaults = ref({ movie: '', tv: '', tvShow: '' })
 
 const selectedLib = computed(() => libraries.value.find((l) => l.id === selectedLibId.value))
-const activeTemplate = computed(() =>
-  useCustomTemplate.value && customTemplate.value ? customTemplate.value : undefined
-)
+// The template sent to the backend for preview/execute. Always uses the
+// editor's current value (which starts from the global default). The per-
+// library template is no longer used as the source — it's only surfaced as a
+// hint when it differs from the global default.
+const activeTemplate = computed(() => customTemplate.value || undefined)
+
+// Does the selected library's own template differ from the global default?
+// When true we show a hint so the user knows this library was customized.
+const libTemplateDiffers = computed(() => {
+  const lib = selectedLib.value
+  if (!lib) return false
+  const g = lib.type === 'tv' ? globalDefaults.value.tv : globalDefaults.value.movie
+  return !!lib.naming_template && !!g && lib.naming_template !== g
+})
 
 onMounted(async () => {
+  // Load global defaults + library list up front.
+  try {
+    const s = await settingsApi.get()
+    globalDefaults.value = {
+      movie: s.default_movie_template,
+      tv: s.default_tv_template,
+      tvShow: s.default_tv_show_template,
+    }
+  } catch { /* keep empty; preview falls back to backend library template */ }
   libraries.value = await librariesApi.list()
 })
 
-// when library changes, reset custom template toggle, load library default,
+// when library changes, load the global default template for that media type,
 // and automatically fetch the resource list (no manual "preview" click needed)
 watch(selectedLibId, (id) => {
-  useCustomTemplate.value = false
-  // The rename page uses the per-library template as its default. The Settings
-  // page's global default only feeds NEW libraries at creation time; once a
-  // library exists, its own naming_template is authoritative here.
   const lib = libraries.value.find((l) => l.id === id)
-  customTemplate.value = lib ? lib.naming_template : ''
+  // Start the editor from the Settings-page global default for this media type.
+  // This keeps the rename page consistent with what's configured in Settings.
+  customTemplate.value = lib
+    ? (lib.type === 'tv' ? globalDefaults.value.tv : globalDefaults.value.movie)
+    : ''
   if (id) preview()
-})
-
-// Re-run the table preview whenever the user toggles "custom template" on/off.
-// (typing inside the editor is handled by onTemplateInput below.)
-watch(useCustomTemplate, (on) => {
-  if (on && selectedLibId.value) debouncedPreview()
 })
 
 // race guard: only the latest preview request may update the table, so a fast
@@ -200,7 +216,6 @@ const tvTree = computed<TvNode[]>(() => {
       <el-select v-model="selectedLibId" placeholder="选择媒体库" style="width:220px">
         <el-option v-for="l in libraries" :key="l.id" :label="`${l.name} (${l.type})`" :value="l.id" />
       </el-select>
-      <el-checkbox v-model="useCustomTemplate" :disabled="!selectedLibId">自定义模板</el-checkbox>
       <el-button :disabled="!selectedLibId" :loading="loading" @click="preview" title="重新计算预览">刷新</el-button>
       <el-button type="success" :disabled="!selected.length" :loading="executing" @click="execute">
         执行选中 ({{ selected.length }})
@@ -208,12 +223,14 @@ const tvTree = computed<TvNode[]>(() => {
       <el-button :disabled="!lastBatch" @click="undo">撤销最近批次</el-button>
     </div>
 
-    <!-- customizable template editor -->
-    <div v-if="useCustomTemplate && selectedLibId" class="template-panel">
+    <!-- template editor: always visible once a library is selected. Starts from
+         the Settings-page global default; editing here only affects this rename
+         session (does not write back to Settings or the library). -->
+    <div v-if="selectedLibId" class="template-panel">
       <div class="panel-title">
-        自定义命名模板
+        命名模板<span class="muted" style="font-weight:400;font-size:12px"> · 来自设置页全局默认,可临时修改(不影响设置)</span>
         <el-tooltip
-          content="可在此临时调整模板而不修改媒体库设置;点标签插入 token;{a;b;c} 表示回退取第一个非空值"
+          content="点标签插入 token;{a;b;c} 表示回退取第一个非空值;修改仅对本次重命名生效"
           placement="top"
         >
           <span class="help">ⓘ</span>
@@ -226,6 +243,17 @@ const tvTree = computed<TvNode[]>(() => {
         placeholder="如:{title} ({year})/{originalTitle;title} ({year}) [{resolution};{source}]{ext}"
         @change="onTemplateInput"
       />
+      <!-- hint when this library's saved template differs from the global default -->
+      <el-alert
+        v-if="libTemplateDiffers"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-top:10px"
+      >
+        该媒体库使用了自定义模板,与设置页的全局默认不同。此处已显示全局默认;
+        如需用该库的原模板,可到「媒体库 → 编辑」查看或同步。
+      </el-alert>
     </div>
 
     <!-- Movies: flat table -->
