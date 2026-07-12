@@ -113,9 +113,14 @@ async function save() {
           >
             <template #append>
               <el-button @click="showKey = !showKey">{{ showKey ? '隐藏' : '显示' }}</el-button>
-              <el-button :loading="testing" @click="testKey">测试连接</el-button>
             </template>
           </el-input>
+          <div class="key-actions">
+            <el-button :loading="testing" @click="testKey">测试连接</el-button>
+            <div class="muted" style="font-size:12px">
+              免费申请:https://www.themoviedb.org/settings/api (选 Developer 类型) · 填好后可先「测试连接」再保存
+            </div>
+          </div>
           <el-alert
             v-if="testResult"
             :title="testResult.message"
@@ -125,9 +130,6 @@ async function save() {
             @close="testResult = null"
             style="margin-top:8px"
           />
-          <div class="muted" style="font-size:12px;margin-top:4px">
-            免费申请:https://www.themoviedb.org/settings/api (选 Developer 类型) · 填好后可先「测试连接」再保存
-          </div>
         </el-form-item>
         <el-form-item label="TMDB 语言">
           <el-select v-model="language" style="width:200px">
@@ -176,6 +178,8 @@ async function save() {
 .status { display: flex; align-items: center; gap: 8px; }
 code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; }
 .card-head { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+/* 按钮 + 提示文字竖排,和输入框等宽对齐 */
+.key-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; width: 100%; }
 .theme-chips { display: flex; gap: 12px; flex-wrap: wrap; }
 .theme-chip {
   position: relative;
