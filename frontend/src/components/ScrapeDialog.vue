@@ -20,7 +20,10 @@ const query = ref('')
 const year = ref<number | undefined>(undefined)
 const results = ref<TmdbSearchResult[]>([])
 const loading = ref(false)
-const matching = ref(false)
+// tmdb_id of the result currently being matched, or null. Using a per-item
+// id instead of a single boolean means clicking "匹配" on one row only
+// spins that one button — not every button in the list.
+const matchingId = ref<number | null>(null)
 // Inline error banner (shown instead of just a toast so the cause survives).
 // null = no error; { title, detail } = error to show.
 const error = ref<{ title: string; detail: string } | null>(null)
@@ -75,7 +78,7 @@ async function search() {
 }
 
 async function match(r: TmdbSearchResult) {
-  matching.value = true
+  matchingId.value = r.tmdb_id
   try {
     await scrapeApi.match(props.mediaType, props.mediaId, r.tmdb_id)
     ElMessage.success('已匹配并刮削')
@@ -85,7 +88,7 @@ async function match(r: TmdbSearchResult) {
     const err = toError(e)
     error.value = { title: '匹配失败', detail: err.detail }
   } finally {
-    matching.value = false
+    matchingId.value = null
   }
 }
 </script>
@@ -123,7 +126,7 @@ async function match(r: TmdbSearchResult) {
           <div class="y muted">{{ r.year || '—' }}</div>
           <div class="o muted">{{ r.overview || '暂无简介' }}</div>
         </div>
-        <el-button type="primary" size="small" :loading="matching" @click="match(r)">匹配</el-button>
+        <el-button type="primary" size="small" :loading="matchingId === r.tmdb_id" @click="match(r)">匹配</el-button>
       </div>
       <el-empty v-if="!loading && !results.length && !error" description="输入名称后点「搜索」" />
     </div>
