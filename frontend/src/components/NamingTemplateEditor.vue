@@ -57,8 +57,10 @@ function insertToken(t: string) {
   emit('change', v)
 }
 
-function onInput(e: Event) {
-  const v = (e.target as HTMLInputElement).value
+// Used as v-model's update handler. Going through a real v-model (instead of
+// :model-value + manual @input on the native event) fixes IME composition and
+// backspace issues where the prop overwrote the input mid-edit.
+function onInput(v: string) {
   emit('update:modelValue', v)
   emit('change', v)
 }
@@ -81,7 +83,7 @@ watch(tokens, (tks) => {
     <el-input
       :model-value="modelValue"
       :placeholder="placeholder || '命名模板...'"
-      @input="onInput"
+      @update:modelValue="onInput"
     >
       <template #append>
         <el-tooltip content="模板中可用下方列出的 token;{a;b;c} 表示按顺序回退取第一个非空值" placement="top">
