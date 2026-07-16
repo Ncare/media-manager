@@ -55,7 +55,7 @@ def _scan_worker(task_id: int, library_id: int) -> None:
                 _update(task_id, status=TaskStatus.failed, message="library not found")
                 return
             result = scanner.scan_library(s, library)
-        msg = f"added {result.get('added',0)}, updated {result.get('updated',0)}"
+        msg = f"added {result.get('added',0)}, updated {result.get('updated',0)}, removed {result.get('removed',0)}"
         _update(task_id, status=TaskStatus.completed, total=result.get("added", 0) + result.get("updated", 0), done=result.get("added", 0), message=msg)
 
         # Auto-scrape if enabled.

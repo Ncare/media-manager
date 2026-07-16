@@ -102,35 +102,37 @@ def _is_video(path: Path) -> bool:
     return path.is_file() and path.suffix.lower() in VIDEO_EXTS
 
 
-def _clean(root: Path) -> tuple[set[str], set[str]]:
-    """Return (existing_movie_paths, existing_episode_paths) for stale detection."""
-    return set(), set()
-
-
 def scan_library(session: Session, library: Library) -> dict:
-    """Scan one library, upserting rows. Returns a summary dict."""
+    """Scan one library, upserting rows and pruning entries whose files are gone.
+
+    A rescan reflects the current state of disk: files deleted since the last
+    scan are removed from the DB so they no longer show up in the movie/TV
+    library pages. The renamer keeps ``file_path`` in sync after moves, so
+    renamed-but-present files are never pruned.
+    """
     root = _resolve_root(library)
     if not root.exists():
-        return {"added": 0, "updated": 0, "skipped": 0, "error": f"path not found: {root}"}
+        return {"added": 0, "updated": 0, "skipped": 0, "removed": 0, "error": f"path not found: {root}"}
 
-    added = updated = skipped = 0
+    added = updated = skipped = removed = 0
 
     if library.type == LibraryType.movie:
-        added, updated, skipped = _scan_movies(session, library, root)
+        added, updated, skipped, removed = _scan_movies(session, library, root)
     else:
-        added, updated, skipped = _scan_tv(session, library, root)
+        added, updated, skipped, removed = _scan_tv(session, library, root)
 
     library.updated_at = datetime.utcnow()
     session.add(library)
     session.commit()
-    return {"added": added, "updated": updated, "skipped": skipped}
+    return {"added": added, "updated": updated, "skipped": skipped, "removed": removed}
 
 
-def _scan_movies(session: Session, library: Library, root: Path) -> tuple[int, int, int]:
-    added = updated = skipped = 0
+def _scan_movies(session: Session, library: Library, root: Path) -> tuple[int, int, int, int]:
+    added = updated = skipped = removed = 0
 
     # Existing file_path -> Movie lookup for upsert.
     existing = {m.file_path: m for m in session.exec(select(Movie).where(Movie.library_id == library.id))}
+    seen: set[str] = set()  # paths discovered in this scan
 
     def _process_file(path: Path):
         nonlocal added, updated
@@ -166,17 +168,25 @@ def _scan_movies(session: Session, library: Library, root: Path) -> tuple[int, i
                 continue
             p = Path(dirpath) / fn
             if _is_video(p):
+                seen.add(str(p))
                 _process_file(p)
             else:
                 skipped += 1
 
+    # Prune movies whose files disappeared from disk since the last scan.
+    for path_str, movie in existing.items():
+        if path_str not in seen:
+            session.delete(movie)
+            removed += 1
+
     session.commit()
-    return added, updated, skipped
+    return added, updated, skipped, removed
 
 
-def _scan_tv(session: Session, library: Library, root: Path) -> tuple[int, int, int]:
-    added = updated = skipped = 0
+def _scan_tv(session: Session, library: Library, root: Path) -> tuple[int, int, int, int]:
+    added = updated = skipped = removed = 0
     shows_existing = {s.folder_path: s for s in session.exec(select(TvShow).where(TvShow.library_id == library.id))}
+    seen_show_paths: set[str] = set()  # show folders found on disk this scan
 
     for show_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         if show_dir.name in IGNORE_NAMES:
@@ -196,19 +206,58 @@ def _scan_tv(session: Session, library: Library, root: Path) -> tuple[int, int, 
             added += 1
         else:
             updated += 1
+        seen_show_paths.add(str(show_dir))
 
-        a, u, s = _scan_episodes(session, library, show, show_dir)
+        a, u, s, r = _scan_episodes(session, library, show, show_dir)
         added += a
         updated += u
         skipped += s
+        removed += r
+
+    # Prune shows whose folders have vanished from disk, along with their
+    # seasons and episodes (cascade by hand — SQLite has no FK on_delete
+    # cascade configured here).
+    for folder_path, show in shows_existing.items():
+        if folder_path not in seen_show_paths:
+            removed += _delete_show_cascade(session, show)
 
     session.commit()
-    return added, updated, skipped
+    return added, updated, skipped, removed
 
 
-def _scan_episodes(session: Session, library: Library, show: TvShow, show_dir: Path) -> tuple[int, int, int]:
-    added = updated = skipped = 0
+def _delete_show_cascade(session: Session, show: TvShow) -> int:
+    """Delete a show and all its seasons/episodes. Returns count removed."""
+    # Episodes referencing this show (some may have a dangling season_id).
+    eps = session.exec(select(Episode).where(Episode.show_id == show.id)).all()
+    for ep in eps:
+        session.delete(ep)
+    seasons = session.exec(select(Season).where(Season.show_id == show.id)).all()
+    for season in seasons:
+        session.delete(season)
+    session.delete(show)
+    # +1 for the show itself; episodes/seasons are counted separately by callers
+    # only when relevant. Here we count the show row.
+    return 1 + len(eps) + len(seasons)
+
+
+def _prune_empty_seasons(session: Session, show: TvShow) -> int:
+    """Delete Season rows that no longer have any episodes. Returns count."""
+    removed = 0
+    seasons = session.exec(select(Season).where(Season.show_id == show.id)).all()
+    for season in seasons:
+        has_ep = session.exec(
+            select(Episode).where(Episode.season_id == season.id)
+        ).first()
+        if not has_ep:
+            session.delete(season)
+            removed += 1
+    return removed
+
+
+def _scan_episodes(session: Session, library: Library, show: TvShow, show_dir: Path) -> tuple[int, int, int, int]:
+    added = updated = skipped = removed = 0
     existing = {e.file_path: e for e in session.exec(select(Episode).where(Episode.show_id == show.id))}
+    seen: set[str] = set()  # episode paths found on disk this scan
 
     for dirpath, dirnames, filenames in os.walk(show_dir):
         dirnames[:] = [d for d in dirnames if d not in IGNORE_NAMES]
@@ -219,6 +268,7 @@ def _scan_episodes(session: Session, library: Library, show: TvShow, show_dir: P
             if not _is_video(p):
                 skipped += 1
                 continue
+            seen.add(str(p))
             info = _guess(p.name)
             season_num = _int_field(info.get("season"))
             episode_num = _int_field(info.get("episode"))
@@ -264,5 +314,14 @@ def _scan_episodes(session: Session, library: Library, show: TvShow, show_dir: P
                 session.add(Episode(**kwargs))
                 added += 1
 
+    # Prune episodes whose files disappeared since the last scan.
+    for path_str, ep in existing.items():
+        if path_str not in seen:
+            session.delete(ep)
+            removed += 1
+
+    # Drop seasons that no longer have any episodes left.
+    removed += _prune_empty_seasons(session, show)
+
     session.commit()
-    return added, updated, skipped
+    return added, updated, skipped, removed
